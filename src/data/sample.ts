@@ -1,0 +1,26 @@
+import type { AcquisitionLot } from '../domain/types'
+
+export const sampleOpenLots: AcquisitionLot[] = [
+  { id: 'sample-1', acquiredDate: '2026-06-15', quantity: 4.127, costBasisUsd: 1612.58, source: 'DO' },
+  { id: 'sample-2', acquiredDate: '2026-06-01', quantity: 0.688, costBasisUsd: 309.76, source: 'DO' },
+  { id: 'sample-3', acquiredDate: '2026-03-31', quantity: 2.5698, costBasisUsd: 856.13, source: 'SP' },
+  { id: 'sample-4', acquiredDate: '2026-03-16', quantity: 4.816, costBasisUsd: 1904.96, source: 'DO' },
+  { id: 'sample-5', acquiredDate: '2026-03-02', quantity: 0.688, costBasisUsd: 270.2, source: 'DO' },
+  { id: 'sample-6', acquiredDate: '2026-03-02', quantity: 0.688, costBasisUsd: 270.2, source: 'DO' },
+  { id: 'sample-7', acquiredDate: '2025-12-31', quantity: 1.9734, costBasisUsd: 858.94, source: 'SP' },
+  { id: 'sample-8', acquiredDate: '2025-12-15', quantity: 4.127, costBasisUsd: 1974.89, source: 'DO' },
+  { id: 'sample-9', acquiredDate: '2025-12-01', quantity: 0.687, costBasisUsd: 338.01, source: 'DO' },
+  { id: 'sample-10', acquiredDate: '2025-09-30', quantity: 2.5392, costBasisUsd: 1183.67, source: 'SP' },
+  { id: 'sample-11', acquiredDate: '2025-09-15', quantity: 4.816, costBasisUsd: 2455.67, source: 'DO' },
+  { id: 'sample-12', acquiredDate: '2025-09-02', quantity: 0.687, costBasisUsd: 348.1, source: 'DO' },
+  { id: 'sample-13', acquiredDate: '2025-06-30', quantity: 1.8258, costBasisUsd: 817.36, source: 'SP' },
+  { id: 'sample-14', acquiredDate: '2025-06-16', quantity: 4.816, costBasisUsd: 2287.41, source: 'DO' },
+  { id: 'sample-15', acquiredDate: '2025-06-02', quantity: 0.688, costBasisUsd: 316.73, source: 'DO' },
+  { id: 'sample-16', acquiredDate: '2025-03-31', quantity: 2.4169, costBasisUsd: 816.55, source: 'SP' },
+  { id: 'sample-17', acquiredDate: '2025-03-17', quantity: 4.129, costBasisUsd: 1604.36, source: 'DO' },
+  { id: 'sample-18', acquiredDate: '2025-02-28', quantity: 0.687, costBasisUsd: 269.67, source: 'DO' },
+  { id: 'sample-19', acquiredDate: '2024-12-31', quantity: 2.1588, costBasisUsd: 818.94, source: 'SP' },
+  { id: 'sample-20', acquiredDate: '2024-12-16', quantity: 4.815, costBasisUsd: 2153.61, source: 'DO' },
+  { id: 'sample-21', acquiredDate: '2024-09-30', quantity: 2.1722, costBasisUsd: 841.23, source: 'SP' },
+  { id: 'sample-22', acquiredDate: '2024-09-16', quantity: 17.887, costBasisUsd: 7701.96, source: 'DO' },
+]
