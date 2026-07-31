@@ -1,15 +1,18 @@
-import { Check, FileSpreadsheet, Upload, X } from 'lucide-react'
+import { Check, FileSpreadsheet, FileText, Upload, X } from 'lucide-react'
 import type { ChangeEvent } from 'react'
-import type { ParseIssue } from '../domain/parse'
+import type { ParseIssue, SupportedBroker } from '../domain/parse'
 
 interface EvidenceUploadProps {
   id: string
   label: string
   description: string
   filename: string | null
+  broker: SupportedBroker | null
   count: number
   issues: ParseIssue[]
   required?: boolean
+  accept?: string
+  fileKind?: 'csv' | 'pdf'
   onFile: (file: File) => void
   onClear: () => void
 }
@@ -19,9 +22,12 @@ export function EvidenceUpload({
   label,
   description,
   filename,
+  broker,
   count,
   issues,
   required = false,
+  accept = '.csv,text/csv',
+  fileKind = 'csv',
   onFile,
   onClear,
 }: EvidenceUploadProps) {
@@ -37,7 +43,7 @@ export function EvidenceUpload({
   return (
     <div className={`evidence-item ${hasData ? 'is-complete' : ''}`}>
       <div className="evidence-icon" aria-hidden="true">
-        {hasData ? <Check size={16} /> : <FileSpreadsheet size={16} />}
+        {hasData ? <Check size={16} /> : fileKind === 'pdf' ? <FileText size={16} /> : <FileSpreadsheet size={16} />}
       </div>
       <div className="evidence-copy">
         <div className="evidence-label-row">
@@ -48,6 +54,7 @@ export function EvidenceUpload({
           <>
             <span className="evidence-filename" title={filename}>{filename}</span>
             <span className="evidence-meta">
+              {broker && `${broker} · `}
               {count} {count === 1 ? 'record' : 'records'}
               {issues.length > 0 && ` · ${issues.length} skipped`}
             </span>
@@ -65,7 +72,7 @@ export function EvidenceUpload({
           id={id}
           className="sr-only"
           type="file"
-          accept=".csv,text/csv"
+          accept={accept}
           onChange={handleChange}
         />
         {hasData && (

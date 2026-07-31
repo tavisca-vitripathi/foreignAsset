@@ -22,6 +22,7 @@ export interface SaleTransaction {
   quantity: number
   costBasisUsd: number
   proceedsUsd: number
+  source?: string
 }
 
 export interface DividendDefinition {

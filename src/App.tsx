@@ -24,12 +24,15 @@ import { ManualEntryDialog } from './components/ManualEntryDialog'
 import referencePackData from './data/ay-2026-27.json'
 import { sampleOpenLots } from './data/sample'
 import { calculateReports } from './domain/calculate'
+import { parseMorganStanleyHoldingsPdf } from './domain/morganStanleyPdf'
 import {
   mergeLotsWithSales,
   parseOpenLotsCsv,
   parseSalesCsv,
   parseWithholdingCsv,
   type ParseIssue,
+  type ParseResult,
+  type SupportedBroker,
 } from './domain/parse'
 import type {
   AcquisitionLot,
@@ -46,6 +49,7 @@ import {
 } from './lib/export'
 
 const referencePack = referencePackData as ReferencePack
+const VERIFIED_SAMPLE_FILENAME = 'Verified Fidelity sample.csv'
 
 type ReportTab = ReportSection
 
@@ -53,9 +57,10 @@ interface EvidenceState<T> {
   filename: string | null
   rows: T[]
   issues: ParseIssue[]
+  broker: SupportedBroker | null
 }
 
-const EMPTY_EVIDENCE = { filename: null, rows: [], issues: [] }
+const EMPTY_EVIDENCE = { filename: null, rows: [], issues: [], broker: null }
 const INR = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
@@ -86,11 +91,13 @@ function sum(rows: ScheduleFaRow[], field: MoneyField): number {
 }
 
 function App() {
-  const [openLots, setOpenLots] = useState<EvidenceState<AcquisitionLot>>({
-    filename: 'Verified Fidelity sample.csv',
+  const [csvOpenLots, setCsvOpenLots] = useState<EvidenceState<AcquisitionLot>>({
+    filename: VERIFIED_SAMPLE_FILENAME,
     rows: sampleOpenLots,
     issues: [],
+    broker: 'Fidelity',
   })
+  const [morganStanleyLots, setMorganStanleyLots] = useState<EvidenceState<AcquisitionLot>>(EMPTY_EVIDENCE)
   const [sales, setSales] = useState<EvidenceState<SaleTransaction>>(EMPTY_EVIDENCE)
   const [withholding, setWithholding] = useState<EvidenceState<WithholdingRecord>>(EMPTY_EVIDENCE)
   const [salesConfirmed, setSalesConfirmed] = useState(false)
@@ -108,7 +115,11 @@ function App() {
 
   const allSales = [...sales.rows, ...manualSales]
   const allWithholding = [...withholding.rows, ...manualWithholding]
-  const lots = mergeLotsWithSales([...openLots.rows, ...manualLots], allSales)
+  const lots = mergeLotsWithSales([
+    ...csvOpenLots.rows,
+    ...morganStanleyLots.rows,
+    ...manualLots,
+  ], allSales)
   const parsedTaxRate = Number(averageTaxRate)
   const averageIndianTaxRate = averageTaxRate !== '' && Number.isFinite(parsedTaxRate)
     ? parsedTaxRate / 100
@@ -124,7 +135,8 @@ function App() {
   }, referencePack)
   const selectedRow = report.faRows.find((row) => row.lotId === selectedLotId) ?? null
   const completedEvidence = [
-    openLots.filename !== null && openLots.rows.length > 0,
+    (csvOpenLots.filename !== null && csvOpenLots.rows.length > 0)
+      || (morganStanleyLots.filename !== null && morganStanleyLots.rows.length > 0),
     sales.filename !== null || manualSales.length > 0 || salesConfirmed,
     withholding.filename !== null || manualWithholding.length > 0 || withholdingConfirmed,
     averageIndianTaxRate !== null,
@@ -132,20 +144,34 @@ function App() {
 
   const readFile = async <T,>(
     file: File,
-    parser: (text: string) => { rows: T[]; issues: ParseIssue[] },
+    parser: (text: string) => ParseResult<T>,
     setter: (value: EvidenceState<T>) => void,
   ) => {
     try {
       const parsed = parser(await file.text())
       setter({ filename: file.name, ...parsed })
-      setNotice(`${file.name}: ${parsed.rows.length} records loaded locally.`)
+      const broker = parsed.broker ? `${parsed.broker}: ` : ''
+      setNotice(`${broker}${file.name}: ${parsed.rows.length} records loaded locally.`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : `Could not read ${file.name}.`)
     }
   }
 
+  const readMorganStanleyPdf = async (file: File) => {
+    const parsed = await parseMorganStanleyHoldingsPdf(file)
+    setCsvOpenLots((current) => current.filename === VERIFIED_SAMPLE_FILENAME ? EMPTY_EVIDENCE : current)
+    setMorganStanleyLots({ filename: file.name, ...parsed })
+    setNotice(`Morgan Stanley: ${file.name}: ${parsed.rows.length} records loaded locally.`)
+  }
+
   const restoreSample = () => {
-    setOpenLots({ filename: 'Verified Fidelity sample.csv', rows: sampleOpenLots, issues: [] })
+    setCsvOpenLots({
+      filename: VERIFIED_SAMPLE_FILENAME,
+      rows: sampleOpenLots,
+      issues: [],
+      broker: 'Fidelity',
+    })
+    setMorganStanleyLots(EMPTY_EVIDENCE)
     setSales(EMPTY_EVIDENCE)
     setWithholding(EMPTY_EVIDENCE)
     setSalesConfirmed(false)
@@ -182,7 +208,7 @@ function App() {
           <div className="brand-mark" aria-hidden="true">FA</div>
           <div>
             <strong>Foreign Asset Workbench</strong>
-            <span>Fidelity / Microsoft equity</span>
+            <span>Fidelity + Morgan Stanley / Microsoft equity</span>
           </div>
         </div>
         <div className="topbar-center">
@@ -218,20 +244,34 @@ function App() {
         <div className="evidence-list">
           <EvidenceUpload
             id="open-lots-file"
-            label="Open lots"
-            description="Fidelity View open lots CSV"
-            filename={openLots.filename}
-            count={openLots.rows.length}
-            issues={openLots.issues}
-            required
-            onFile={(file) => void readFile(file, parseOpenLotsCsv, setOpenLots)}
-            onClear={() => setOpenLots(EMPTY_EVIDENCE)}
+            label="Fidelity open lots"
+            description="Fidelity positions CSV"
+            filename={csvOpenLots.filename}
+            broker={csvOpenLots.broker}
+            count={csvOpenLots.rows.length}
+            issues={csvOpenLots.issues}
+            onFile={(file) => void readFile(file, parseOpenLotsCsv, setCsvOpenLots)}
+            onClear={() => setCsvOpenLots(EMPTY_EVIDENCE)}
+          />
+          <EvidenceUpload
+            id="morgan-stanley-holdings-file"
+            label="Morgan Stanley holdings"
+            description="Printed MSFT holdings PDF"
+            filename={morganStanleyLots.filename}
+            broker={morganStanleyLots.broker}
+            count={morganStanleyLots.rows.length}
+            issues={morganStanleyLots.issues}
+            accept=".pdf,application/pdf"
+            fileKind="pdf"
+            onFile={(file) => void readMorganStanleyPdf(file)}
+            onClear={() => setMorganStanleyLots(EMPTY_EVIDENCE)}
           />
           <EvidenceUpload
             id="sales-file"
             label="Sold lots"
             description="Realized gain/loss or transaction CSV"
             filename={sales.filename}
+            broker={sales.broker}
             count={sales.rows.length}
             issues={sales.issues}
             onFile={(file) => {
@@ -255,6 +295,7 @@ function App() {
             label="Dividend tax"
             description="Dividend and withholding CSV"
             filename={withholding.filename}
+            broker={withholding.broker}
             count={withholding.rows.length}
             issues={withholding.issues}
             onFile={(file) => {
@@ -535,7 +576,7 @@ function ScheduleFaTable({ rows, selectedLotId, onSelect }: ScheduleFaTableProps
     return (
       <div className="empty-state">
         <FileDown size={28} />
-        <h2>Upload Fidelity open lots</h2>
+        <h2>Upload open lots</h2>
         <p>The Schedule FA table appears after a recognizable CSV is loaded.</p>
       </div>
     )

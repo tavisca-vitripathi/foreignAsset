@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import path from 'node:path'
 
 test('renders and navigates the verified report', async ({ page }, testInfo) => {
   await page.goto('/')
@@ -38,4 +39,25 @@ test('supports manual corrections', async ({ page }) => {
   await page.getByLabel('Cost basis (USD)').fill('400')
   await page.getByRole('button', { name: 'Add record' }).click()
   await expect(page.getByText('1 manual records')).toBeVisible()
+})
+
+test('combines Morgan Stanley PDF and Fidelity CSV holdings', async ({ page }) => {
+  await page.goto('/')
+
+  await page.locator('#morgan-stanley-holdings-file').setInputFiles(path.join(
+    process.cwd(),
+    'public/templates/morgan-stanley-holdings-template.pdf',
+  ))
+  await expect(page.getByText('Morgan Stanley · 1 record')).toBeVisible()
+  await expect(page.getByText('Verified Fidelity sample.csv')).toHaveCount(0)
+
+  await page.locator('#open-lots-file').setInputFiles({
+    name: 'fidelity-open-lots.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('Date acquired,Quantity,Cost basis,Share source\nMar-31-2025,2,600,DO\n'),
+  })
+
+  await expect(page.getByText('Fidelity · 1 record')).toBeVisible()
+  await expect(page.getByText('Morgan Stanley · 1 record')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Report summary' }).getByText('2', { exact: true })).toBeVisible()
 })

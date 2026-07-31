@@ -214,7 +214,7 @@ export function calculateReports(input: CalculationInput, pack: ReferencePack): 
     warnings.push({
       code: 'WITHHOLDING_ESTIMATED',
       severity: 'warning',
-      message: 'Foreign tax is estimated at 25%. Upload Fidelity withholding records before filing.',
+      message: 'Foreign tax is estimated at 25%. Upload broker withholding records before filing.',
     })
   }
 

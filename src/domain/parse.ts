@@ -10,12 +10,102 @@ export interface ParseIssue {
   message: string
 }
 
+export type SupportedBroker = 'Fidelity' | 'Morgan Stanley'
+
 export interface ParseResult<T> {
   rows: T[]
   issues: ParseIssue[]
+  broker: SupportedBroker | null
 }
 
 type CsvRow = Record<string, string | undefined>
+
+const ACQUIRED_DATE_ALIASES = [
+  'Date acquired',
+  'Acquisition date',
+  'Vest date',
+  'Release date',
+  'Purchase date',
+]
+const QUANTITY_ALIASES = [
+  'Quantity',
+  'Shares',
+  'Shares acquired',
+  'Available shares',
+  'Shares available',
+  'Available quantity',
+  'Total shares you hold',
+]
+const COST_BASIS_ALIASES = [
+  'Cost basis',
+  'Total cost basis',
+  'Adjusted cost basis',
+  'Total cost',
+  'Acquisition cost',
+  'Purchase cost',
+]
+const SOURCE_ALIASES = ['Share source', 'Source', 'Plan type', 'Award type', 'Grant type']
+const MORGAN_STANLEY_HEADERS = new Set([
+  'vestdate',
+  'releasedate',
+  'purchasedate',
+  'availablequantity',
+  'availableshares',
+  'sharesavailable',
+  'totalsharesyouhold',
+  'adjustedcostbasis',
+  'totalcost',
+  'plantype',
+  'awardtype',
+  'granttype',
+  'tradedate',
+  'quantitysold',
+  'netproceeds',
+  'grossproceeds',
+  'paydate',
+  'taxamount',
+])
+const FIDELITY_HEADERS = new Set([
+  'dateacquired',
+  'datesold',
+  'sharesource',
+  'grossdividend',
+])
+const KNOWN_HEADERS = new Set([
+  ...ACQUIRED_DATE_ALIASES,
+  ...QUANTITY_ALIASES,
+  ...COST_BASIS_ALIASES,
+  ...SOURCE_ALIASES,
+  'Date sold',
+  'Sale date',
+  'Trade date',
+  'Settlement date',
+  'Shares sold',
+  'Quantity sold',
+  'Proceeds',
+  'Sale proceeds',
+  'Total proceeds',
+  'Net proceeds',
+  'Gross proceeds',
+  'Net amount',
+  'Payment date',
+  'Date paid',
+  'Transaction date',
+  'Pay date',
+  'Gross income',
+  'Gross dividend',
+  'Dividend amount',
+  'Gross amount',
+  'Gross payment',
+  'Income amount',
+  'Tax withheld',
+  'Foreign tax paid',
+  'Withholding tax',
+  'Federal tax withheld',
+  'US federal tax withheld',
+  'Tax amount',
+  'Total tax withheld',
+].map(normalizeHeader))
 
 const MONTHS: Record<string, number> = {
   jan: 1,
@@ -42,6 +132,17 @@ function normalizedRow(row: CsvRow): CsvRow {
   )
 }
 
+function detectBroker(fields: string[] | undefined): SupportedBroker | null {
+  const headers = (fields ?? []).map(normalizeHeader)
+  if (headers.some((header) => MORGAN_STANLEY_HEADERS.has(header))) {
+    return 'Morgan Stanley'
+  }
+  if (headers.some((header) => FIDELITY_HEADERS.has(header))) {
+    return 'Fidelity'
+  }
+  return null
+}
+
 function pick(row: CsvRow, aliases: string[]): string | undefined {
   for (const alias of aliases) {
     const value = row[normalizeHeader(alias)]
@@ -64,6 +165,19 @@ function parseNumber(value: string | undefined): number | null {
     return null
   }
   return negative ? -parsed : parsed
+}
+
+function normalizeSource(value: string | undefined, broker: SupportedBroker | null): string {
+  const normalized = normalizeHeader(value ?? '')
+  if ([
+    'espp',
+    'employeestockpurchase',
+    'employeestockpurchaseplan',
+    'stockpurchaseplan',
+  ].includes(normalized)) {
+    return 'SP'
+  }
+  return value ?? broker ?? 'Broker import'
 }
 
 function pad(value: number): string {
@@ -98,24 +212,25 @@ export function parseFidelityDate(value: string | undefined): string | null {
 }
 
 function parseCsv(text: string): ParseResult<CsvRow> {
-  const result = Papa.parse<CsvRow>(text, {
-    header: true,
+  const result = Papa.parse<string[]>(text, {
     skipEmptyLines: 'greedy',
   })
-  const rows = result.data.map(normalizedRow)
+  const headerIndex = result.data.findIndex((values) => (
+    values.filter((value) => KNOWN_HEADERS.has(normalizeHeader(value))).length >= 3
+  ))
+  const fields = headerIndex >= 0 ? result.data[headerIndex] : []
+  const rows = headerIndex >= 0
+    ? result.data.slice(headerIndex + 1).map((values) => normalizedRow(Object.fromEntries(
+        fields.map((field, index) => [field, values[index]]),
+      )))
+    : []
 
   return {
     rows,
+    broker: detectBroker(fields),
     issues: result.errors
-      .filter((error) => {
-        if (error.row === undefined) {
-          return true
-        }
-        const values = Object.values(rows[error.row] ?? {}).filter(Boolean)
-        return !(values.length === 1 && /^the values are displayed in /i.test(values[0] ?? ''))
-      })
       .map((error) => ({
-        row: error.row === undefined ? 0 : error.row + 2,
+        row: error.row === undefined ? 0 : error.row + 1,
         message: error.message,
       })),
   }
@@ -127,9 +242,9 @@ export function parseOpenLotsCsv(text: string): ParseResult<AcquisitionLot> {
   const issues = [...parsed.issues]
 
   parsed.rows.forEach((row, index) => {
-    const acquiredDate = parseFidelityDate(pick(row, ['Date acquired', 'Acquisition date']))
-    const quantity = parseNumber(pick(row, ['Quantity', 'Shares']))
-    const costBasisUsd = parseNumber(pick(row, ['Cost basis', 'Total cost basis']))
+    const acquiredDate = parseFidelityDate(pick(row, ACQUIRED_DATE_ALIASES))
+    const quantity = parseNumber(pick(row, QUANTITY_ALIASES))
+    const costBasisUsd = parseNumber(pick(row, COST_BASIS_ALIASES))
 
     if (!acquiredDate && quantity === null && costBasisUsd === null) {
       return
@@ -151,14 +266,14 @@ export function parseOpenLotsCsv(text: string): ParseResult<AcquisitionLot> {
       acquiredDate,
       quantity,
       costBasisUsd,
-      source: pick(row, ['Share source', 'Source']) ?? 'Fidelity',
+      source: normalizeSource(pick(row, SOURCE_ALIASES), parsed.broker),
     })
   })
 
   if (rows.length === 0 && issues.length === 0) {
     issues.push({ row: 1, message: 'No recognizable open-lot rows were found.' })
   }
-  return { rows, issues }
+  return { rows, issues, broker: parsed.broker }
 }
 
 export function parseSalesCsv(text: string): ParseResult<SaleTransaction> {
@@ -167,11 +282,18 @@ export function parseSalesCsv(text: string): ParseResult<SaleTransaction> {
   const issues = [...parsed.issues]
 
   parsed.rows.forEach((row, index) => {
-    const acquiredDate = parseFidelityDate(pick(row, ['Date acquired', 'Acquisition date']))
-    const soldDate = parseFidelityDate(pick(row, ['Date sold', 'Sale date', 'Settlement date']))
-    const quantity = parseNumber(pick(row, ['Quantity', 'Shares sold', 'Shares']))
-    const costBasisUsd = parseNumber(pick(row, ['Cost basis', 'Total cost basis']))
-    const proceedsUsd = parseNumber(pick(row, ['Proceeds', 'Sale proceeds', 'Total proceeds']))
+    const acquiredDate = parseFidelityDate(pick(row, ACQUIRED_DATE_ALIASES))
+    const soldDate = parseFidelityDate(pick(row, ['Date sold', 'Sale date', 'Trade date', 'Settlement date']))
+    const quantity = parseNumber(pick(row, ['Quantity', 'Shares sold', 'Quantity sold', 'Shares']))
+    const costBasisUsd = parseNumber(pick(row, COST_BASIS_ALIASES))
+    const proceedsUsd = parseNumber(pick(row, [
+      'Proceeds',
+      'Sale proceeds',
+      'Total proceeds',
+      'Net proceeds',
+      'Gross proceeds',
+      'Net amount',
+    ]))
 
     if (!acquiredDate && !soldDate && quantity === null && proceedsUsd === null) {
       return
@@ -195,10 +317,11 @@ export function parseSalesCsv(text: string): ParseResult<SaleTransaction> {
       quantity,
       costBasisUsd,
       proceedsUsd,
+      source: normalizeSource(pick(row, SOURCE_ALIASES), parsed.broker),
     })
   })
 
-  return { rows, issues }
+  return { rows, issues, broker: parsed.broker }
 }
 
 export function parseWithholdingCsv(text: string): ParseResult<WithholdingRecord> {
@@ -207,9 +330,30 @@ export function parseWithholdingCsv(text: string): ParseResult<WithholdingRecord
   const issues = [...parsed.issues]
 
   parsed.rows.forEach((row, index) => {
-    const paymentDate = parseFidelityDate(pick(row, ['Payment date', 'Date paid', 'Transaction date', 'Date']))
-    const grossIncomeUsd = parseNumber(pick(row, ['Gross income', 'Gross dividend', 'Dividend amount', 'Gross amount']))
-    const taxWithheldUsd = parseNumber(pick(row, ['Tax withheld', 'Foreign tax paid', 'Withholding tax', 'Federal tax withheld']))
+    const paymentDate = parseFidelityDate(pick(row, [
+      'Payment date',
+      'Date paid',
+      'Transaction date',
+      'Pay date',
+      'Date',
+    ]))
+    const grossIncomeUsd = parseNumber(pick(row, [
+      'Gross income',
+      'Gross dividend',
+      'Dividend amount',
+      'Gross amount',
+      'Gross payment',
+      'Income amount',
+    ]))
+    const taxWithheldUsd = parseNumber(pick(row, [
+      'Tax withheld',
+      'Foreign tax paid',
+      'Withholding tax',
+      'Federal tax withheld',
+      'US federal tax withheld',
+      'Tax amount',
+      'Total tax withheld',
+    ]))
 
     if (!paymentDate && grossIncomeUsd === null && taxWithheldUsd === null) {
       return
@@ -229,7 +373,7 @@ export function parseWithholdingCsv(text: string): ParseResult<WithholdingRecord
     rows.push({ paymentDate, grossIncomeUsd, taxWithheldUsd })
   })
 
-  return { rows, issues }
+  return { rows, issues, broker: parsed.broker }
 }
 
 export function mergeLotsWithSales(
@@ -262,7 +406,7 @@ export function mergeLotsWithSales(
           acquiredDate: sale.acquiredDate,
           quantity: sale.quantity,
           costBasisUsd: sale.costBasisUsd,
-          source: 'Fidelity sold history',
+          source: sale.source ?? 'Sold history',
         })
   })
 
